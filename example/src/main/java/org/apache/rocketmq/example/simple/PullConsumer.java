@@ -24,20 +24,28 @@ import org.apache.rocketmq.client.consumer.PullResult;
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.common.message.MessageQueue;
 
+/**
+ * 消费者从Broker拉取消息进行消费
+ */
 public class PullConsumer {
-    private static final Map<MessageQueue, Long> OFFSE_TABLE = new HashMap<MessageQueue, Long>();
+    private static final Map<MessageQueue, Long> OFFSET_TABLE = new HashMap<>();
 
     public static void main(String[] args) throws MQClientException {
-        DefaultMQPullConsumer consumer = new DefaultMQPullConsumer("please_rename_unique_group_name_5");
-        consumer.setNamesrvAddr("127.0.0.1:9876");
+        DefaultMQPullConsumer consumer = new DefaultMQPullConsumer("PullConsumerGroup");
+        consumer.setNamesrvAddr("192.168.67.2:9876");
         consumer.start();
 
-        Set<MessageQueue> mqs = consumer.fetchSubscribeMessageQueues("broker-a");
+        /*
+         * 其实Topic是一个逻辑概念，Topic上面有很多个消息，存放在不同的broker上面，此时
+         * 这每个broker对于当前Topic来说就是一个MessageQueue,这就是一个队列
+         */
+        Set<MessageQueue> mqs = consumer.fetchSubscribeMessageQueues("TopicTest");
         for (MessageQueue mq : mqs) {
             System.out.printf("Consume from the queue: %s%n", mq);
             SINGLE_MQ:
             while (true) {
                 try {
+                    // 这里首先需要获取到队列到偏移量，然后去拉消息消费，完成消费后还需要更新偏移量
                     PullResult pullResult =
                         consumer.pullBlockIfNotFound(mq, null, getMessageQueueOffset(mq), 32);
                     System.out.printf("%s%n", pullResult);
@@ -59,12 +67,11 @@ public class PullConsumer {
                 }
             }
         }
-
         consumer.shutdown();
     }
 
     private static long getMessageQueueOffset(MessageQueue mq) {
-        Long offset = OFFSE_TABLE.get(mq);
+        Long offset = OFFSET_TABLE.get(mq);
         if (offset != null)
             return offset;
 
@@ -72,7 +79,6 @@ public class PullConsumer {
     }
 
     private static void putMessageQueueOffset(MessageQueue mq, long offset) {
-        OFFSE_TABLE.put(mq, offset);
+        OFFSET_TABLE.put(mq, offset);
     }
-
 }

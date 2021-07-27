@@ -24,6 +24,7 @@ import org.apache.rocketmq.remoting.common.RemotingHelper;
 
 /**
  * This class demonstrates how to send messages to brokers using provided {@link DefaultMQProducer}.
+ * <p/> 基本的同步方式
  */
 public class Producer {
     public static void main(String[] args) throws MQClientException, InterruptedException {
@@ -31,7 +32,7 @@ public class Producer {
         /*
          * Instantiate with a producer group name.
          */
-        DefaultMQProducer producer = new DefaultMQProducer("please_rename_unique_group_name");
+        DefaultMQProducer producer = new DefaultMQProducer("ProducerGroup");
 
         /*
          * Specify name server addresses.
@@ -44,13 +45,14 @@ public class Producer {
          * }
          * </pre>
          */
+        producer.setNamesrvAddr("192.168.67.2:9876;192.168.67.3:9876");
 
         /*
          * Launch the instance.
          */
         producer.start();
 
-        for (int i = 0; i < 1000; i++) {
+        for (int i = 0; i < 10; i++) {
             try {
 
                 /*

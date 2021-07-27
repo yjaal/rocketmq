@@ -26,11 +26,18 @@ import org.apache.rocketmq.client.producer.SendResult;
 import org.apache.rocketmq.common.message.Message;
 import org.apache.rocketmq.remoting.common.RemotingHelper;
 
+/**
+ * 异步带回调处理带生产方式
+ */
 public class AsyncProducer {
     public static void main(
         String[] args) throws MQClientException, InterruptedException, UnsupportedEncodingException {
 
-        DefaultMQProducer producer = new DefaultMQProducer("Jodie_Daily_test");
+        // 实例化消息生产者Producer
+        DefaultMQProducer producer = new DefaultMQProducer("AsyncProducerGroup");
+        // 设置NameServer的地址
+        producer.setNamesrvAddr("192.168.67.2:9876");
+        // 启动Producer实例
         producer.start();
         producer.setRetryTimesWhenSendAsyncFailed(0);
 
@@ -39,10 +46,12 @@ public class AsyncProducer {
         for (int i = 0; i < messageCount; i++) {
             try {
                 final int index = i;
-                Message msg = new Message("Jodie_topic_1023",
+                Message msg = new Message("TopicTest",
                     "TagA",
                     "OrderID188",
                     "Hello world".getBytes(RemotingHelper.DEFAULT_CHARSET));
+
+                // SendCallback接收异步返回结果的回调
                 producer.send(msg, new SendCallback() {
                     @Override
                     public void onSuccess(SendResult sendResult) {
@@ -57,10 +66,13 @@ public class AsyncProducer {
                         e.printStackTrace();
                     }
                 });
+                Thread.sleep(10);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
+        // 这里等待回调
+        System.out.println("消息发送完成");
         countDownLatch.await(5, TimeUnit.SECONDS);
         producer.shutdown();
     }
