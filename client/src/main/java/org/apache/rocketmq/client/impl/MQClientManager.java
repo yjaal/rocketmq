@@ -45,7 +45,11 @@ public class MQClientManager {
     }
 
     public MQClientInstance getAndCreateMQClientInstance(final ClientConfig clientConfig, RPCHook rpcHook) {
+        // clientId为客户端IP+instance（unitname可选），如果instance为默认值DEFAULT
+        // 那么会将instance自动替换为进程id，这样就避免一台物理机上部署两个应用
         String clientId = clientConfig.buildMQClientId();
+        // 创建MQClientInstance实例，整个JVM实例中只存在一个这样的实例，维护一个
+        // 缓存列表ConcurrentMap<String/* clientId */, MQClientInstance> factoryTable
         MQClientInstance instance = this.factoryTable.get(clientId);
         if (null == instance) {
             instance =

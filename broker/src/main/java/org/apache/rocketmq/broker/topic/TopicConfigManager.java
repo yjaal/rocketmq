@@ -264,6 +264,7 @@ public class TopicConfigManager extends ConfigManager {
         }
 
         if (createNew) {
+            // 将主题同步给所有namesrv
             this.brokerController.registerBrokerAll(false, true,true);
         }
 

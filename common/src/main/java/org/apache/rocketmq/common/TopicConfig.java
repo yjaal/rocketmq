@@ -22,9 +22,13 @@ public class TopicConfig {
     private static final String SEPARATOR = " ";
     public static int defaultReadQueueNums = 16;
     public static int defaultWriteQueueNums = 16;
+    // broker名字
     private String topicName;
+    // topic被读取的队列数
     private int readQueueNums = defaultReadQueueNums;
+    // topic消息写入的队列数
     private int writeQueueNums = defaultWriteQueueNums;
+    // 读写权限
     private int perm = PermName.PERM_READ | PermName.PERM_WRITE;
     private TopicFilterType topicFilterType = TopicFilterType.SINGLE_TAG;
     private int topicSysFlag = 0;

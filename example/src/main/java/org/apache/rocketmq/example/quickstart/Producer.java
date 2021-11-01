@@ -45,7 +45,8 @@ public class Producer {
          * }
          * </pre>
          */
-        producer.setNamesrvAddr("192.168.67.2:9876;192.168.67.3:9876");
+//        producer.setNamesrvAddr("192.168.67.2:9876;192.168.67.3:9876");
+        producer.setNamesrvAddr("127.0.0.1:9876");
 
         /*
          * Launch the instance.

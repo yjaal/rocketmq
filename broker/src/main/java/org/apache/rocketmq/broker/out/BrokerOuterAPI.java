@@ -118,6 +118,7 @@ public class BrokerOuterAPI {
         final long brokerId,
         final String haServerAddr,
         final TopicConfigSerializeWrapper topicConfigWrapper,
+        // 消息过滤服务器列表
         final List<String> filterServerList,
         final boolean oneway,
         final int timeoutMills,
@@ -142,6 +143,7 @@ public class BrokerOuterAPI {
             final int bodyCrc32 = UtilAll.crc32(body);
             requestHeader.setBodyCrc32(bodyCrc32);
             final CountDownLatch countDownLatch = new CountDownLatch(nameServerAddressList.size());
+            // 向所有的nameServer发送注册消息
             for (final String namesrvAddr : nameServerAddressList) {
                 brokerOuterExecutor.execute(new Runnable() {
                     @Override
@@ -266,8 +268,10 @@ public class BrokerOuterAPI {
         final TopicConfigSerializeWrapper topicConfigWrapper,
         final int timeoutMills) {
         final List<Boolean> changedList = new CopyOnWriteArrayList<>();
+        // 获取所有的nameServer地址
         List<String> nameServerAddressList = this.remotingClient.getNameServerAddressList();
         if (nameServerAddressList != null && nameServerAddressList.size() > 0) {
+            // 需要向所有的nameServer进行注册
             final CountDownLatch countDownLatch = new CountDownLatch(nameServerAddressList.size());
             for (final String namesrvAddr : nameServerAddressList) {
                 brokerOuterExecutor.execute(new Runnable() {

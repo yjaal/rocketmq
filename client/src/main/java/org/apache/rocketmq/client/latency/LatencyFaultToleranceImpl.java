@@ -72,6 +72,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
         }
 
         if (!tmpList.isEmpty()) {
+            // 随机打乱
             Collections.shuffle(tmpList);
 
             Collections.sort(tmpList);
@@ -97,8 +98,11 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
     }
 
     class FaultItem implements Comparable<FaultItem> {
+        // 唯一键，这里是brokerName
         private final String name;
+        // 本次消息发送延迟
         private volatile long currentLatency;
+        // 故障规避开始时间
         private volatile long startTimestamp;
 
         public FaultItem(final String name) {

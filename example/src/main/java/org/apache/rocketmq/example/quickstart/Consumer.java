@@ -45,7 +45,8 @@ public class Consumer {
          * }
          * </pre>
          */
-        consumer.setNamesrvAddr("192.168.67.2:9876;192.168.67.3:9876");
+//        consumer.setNamesrvAddr("192.168.67.2:9876;192.168.67.3:9876");
+        consumer.setNamesrvAddr("127.0.0.1:9876");
 
         /*
          * Specify where to start in case the specified consumer group is a brand new one.

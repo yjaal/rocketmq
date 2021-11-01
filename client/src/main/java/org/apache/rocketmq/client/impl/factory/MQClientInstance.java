@@ -614,6 +614,7 @@ public class MQClientInstance {
             if (this.lockNamesrv.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 try {
                     TopicRouteData topicRouteData;
+                    // 如果是默认group，那么使用默认等topic去查找
                     if (isDefault && defaultMQProducer != null) {
                         topicRouteData = this.mQClientAPIImpl.getDefaultTopicRouteInfoFromNameServer(defaultMQProducer.getCreateTopicKey(),
                             1000 * 3);
@@ -625,24 +626,29 @@ public class MQClientInstance {
                             }
                         }
                     } else {
+                        // 查找路由信息，如果启动一个broker，那么相关信息就是broker.conf中的信息
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, 1000 * 3);
                     }
                     if (topicRouteData != null) {
+                        // 如果存在老的路由信息，则需要和新的比较，然后更新
                         TopicRouteData old = this.topicRouteTable.get(topic);
                         boolean changed = topicRouteDataIsChange(old, topicRouteData);
                         if (!changed) {
+                            // 若没有发生变化，再次对缓存中对路由信息进行检查，若有为空的情况，则changed=true
                             changed = this.isNeedUpdateTopicRouteInfo(topic);
                         } else {
                             log.info("the topic[{}] route info changed, old[{}] ,new[{}]", topic, old, topicRouteData);
                         }
 
                         if (changed) {
+                            // 如果发生变化，则使用namesrv中的克隆一个
                             TopicRouteData cloneTopicRouteData = topicRouteData.cloneTopicRouteData();
 
                             for (BrokerData bd : topicRouteData.getBrokerDatas()) {
                                 this.brokerAddrTable.put(bd.getBrokerName(), bd.getBrokerAddrs());
                             }
 
+                            // 更新相关路由信息
                             // Update Pub info
                             {
                                 TopicPublishInfo publishInfo = topicRouteData2TopicPublishInfo(topic, topicRouteData);
@@ -803,8 +809,10 @@ public class MQClientInstance {
 
     private boolean isNeedUpdateTopicRouteInfo(final String topic) {
         boolean result = false;
+        // producer
         {
             Iterator<Entry<String, MQProducerInner>> it = this.producerTable.entrySet().iterator();
+            // 遍历缓存
             while (it.hasNext() && !result) {
                 Entry<String, MQProducerInner> entry = it.next();
                 MQProducerInner impl = entry.getValue();
@@ -814,6 +822,7 @@ public class MQClientInstance {
             }
         }
 
+        // consumer
         {
             Iterator<Entry<String, MQConsumerInner>> it = this.consumerTable.entrySet().iterator();
             while (it.hasNext() && !result) {
@@ -937,7 +946,7 @@ public class MQClientInstance {
         if (null == group || null == producer) {
             return false;
         }
-
+        // 如果不存在，则添加
         MQProducerInner prev = this.producerTable.putIfAbsent(group, producer);
         if (prev != null) {
             log.warn("the producer group[{}] exist already.", group);
