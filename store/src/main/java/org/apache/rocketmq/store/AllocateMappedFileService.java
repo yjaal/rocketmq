@@ -37,8 +37,10 @@ import org.apache.rocketmq.store.config.BrokerRole;
 public class AllocateMappedFileService extends ServiceThread {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static int waitTimeOut = 1000 * 5;
+    // 请求表
     private ConcurrentMap<String, AllocateRequest> requestTable =
         new ConcurrentHashMap<String, AllocateRequest>();
+    // 一个优先级请求队列
     private PriorityBlockingQueue<AllocateRequest> requestQueue =
         new PriorityBlockingQueue<AllocateRequest>();
     private volatile boolean hasException = false;
@@ -56,8 +58,9 @@ public class AllocateMappedFileService extends ServiceThread {
                 canSubmitRequests = this.messageStore.getTransientStorePool().remainBufferNumbs() - this.requestQueue.size();
             }
         }
-
+        // 创建下一个创建commitlog文件的请求
         AllocateRequest nextReq = new AllocateRequest(nextFilePath, fileSize);
+        // 存放到请求队列中requestTable
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
 
         if (nextPutOK) {
@@ -67,6 +70,7 @@ public class AllocateMappedFileService extends ServiceThread {
                 this.requestTable.remove(nextFilePath);
                 return null;
             }
+            // 将创建请求存入到优先级队列requestQueue中
             boolean offerOK = this.requestQueue.offer(nextReq);
             if (!offerOK) {
                 log.warn("never expected here, add a request to preallocate queue failed");
@@ -74,6 +78,7 @@ public class AllocateMappedFileService extends ServiceThread {
             canSubmitRequests--;
         }
 
+        // 创建下下一个创建commitlog文件的请求，这里是为什么？？？
         AllocateRequest nextNextReq = new AllocateRequest(nextNextFilePath, fileSize);
         boolean nextNextPutOK = this.requestTable.putIfAbsent(nextNextFilePath, nextNextReq) == null;
         if (nextNextPutOK) {
@@ -97,6 +102,7 @@ public class AllocateMappedFileService extends ServiceThread {
         AllocateRequest result = this.requestTable.get(nextFilePath);
         try {
             if (result != null) {
+                // 等待计数器变为0
                 boolean waitOK = result.getCountDownLatch().await(waitTimeOut, TimeUnit.MILLISECONDS);
                 if (!waitOK) {
                     log.warn("create mmap timeout " + result.getFilePath() + " " + result.getFileSize());
@@ -142,11 +148,13 @@ public class AllocateMappedFileService extends ServiceThread {
 
     /**
      * Only interrupted by the external thread, will return false
+     * 一直运行，除非被强制停止
      */
     private boolean mmapOperation() {
         boolean isSuccess = false;
         AllocateRequest req = null;
         try {
+            // 从队列中取一个请求
             req = this.requestQueue.take();
             AllocateRequest expectedRequest = this.requestTable.get(req.getFilePath());
             if (null == expectedRequest) {
@@ -159,11 +167,12 @@ public class AllocateMappedFileService extends ServiceThread {
                     + req.getFileSize() + ", req:" + req + ", expectedRequest:" + expectedRequest);
                 return true;
             }
-
+            // 创建一个MappedFile
             if (req.getMappedFile() == null) {
                 long beginTime = System.currentTimeMillis();
 
                 MappedFile mappedFile;
+                // 开启持久化和异步刷盘
                 if (messageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
                     try {
                         mappedFile = ServiceLoader.load(MappedFile.class).iterator().next();
@@ -212,6 +221,7 @@ public class AllocateMappedFileService extends ServiceThread {
             }
         } finally {
             if (req != null && isSuccess)
+                // 最后计数器减一
                 req.getCountDownLatch().countDown();
         }
         return true;

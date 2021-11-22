@@ -89,10 +89,16 @@ public class IndexFile {
         return this.mappedFile.destroy(intervalForcibly);
     }
 
+    /**
+     * 把keyhash 物理offset存储到indexfile上，即存储到MappedFile的pagecache上
+     */
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
+        // 已使用的index数小于2000w，则写入
         if (this.indexHeader.getIndexCount() < this.indexNum) {
             int keyHash = indexKeyHashMethod(key);
+            // 取模，获取该key落在哪个slot上
             int slotPos = keyHash % this.hashSlotNum;
+            // 计算该索引在indexfile内的slot绝对位置
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             FileLock fileLock = null;
@@ -101,42 +107,54 @@ public class IndexFile {
 
                 // fileLock = this.fileChannel.lock(absSlotPos, hashSlotSize,
                 // false);
+                // 更新indexfile是ReputMessageService单线程操作，无需加锁
+                // 获取该key在indexfile绝对位置上的slot值
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()) {
                     slotValue = invalidIndex;
                 }
-
+                // 消息在commitlog存储的时间戳与indexfile第一条消息索引时间戳之间的时间差
                 long timeDiff = storeTimestamp - this.indexHeader.getBeginTimestamp();
 
                 timeDiff = timeDiff / 1000;
-
+                // 说明该条消息前没有在该indexfile存储索引，因此该条消息即是该indexfile的第一条索引记录
                 if (this.indexHeader.getBeginTimestamp() <= 0) {
                     timeDiff = 0;
                 } else if (timeDiff > Integer.MAX_VALUE) {
                     timeDiff = Integer.MAX_VALUE;
                 } else if (timeDiff < 0) {
+                    // 说明broker异常关闭启动后新消息的时间戳小于该indexfile的
+                    // 第一条消息时间戳，可能重复创建索引
                     timeDiff = 0;
                 }
-
+                // 计算该索引要存放在indexfile上索引区域的绝对位置，即slotTable之后的偏移
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
-
+                // 按照索引格式更新索引位置  20字节
                 this.mappedByteBuffer.putInt(absIndexPos, keyHash);
                 this.mappedByteBuffer.putLong(absIndexPos + 4, phyOffset);
+                // 消息的落盘时间与header里的beginTimestamp的差值(为了节省存储空间，如果直接
+                // 存message的落盘时间就得8bytes，这里转换成量int)
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8, (int) timeDiff);
+                // 如果没有hash冲突，slotValue为0，如果hash冲突（即多个index的hash落在同一个slot内）则自增
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
-
+                // 更新slot位置 4字节。这个是难理解地方，也是核心地方，slot上存放的是当前索引的个数，那么进行查找的
+                // 时候根据keyhash定位到slot 后，获取了slotValue，该值就是索引数量，那么可以根据该值获取该key对应
+                // 的索引在indexfile上索引的真正位置
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
 
                 if (this.indexHeader.getIndexCount() <= 1) {
                     this.indexHeader.setBeginPhyOffset(phyOffset);
                     this.indexHeader.setBeginTimestamp(storeTimestamp);
                 }
-
+                // 已使用的hashslot数量+1
                 this.indexHeader.incHashSlotCount();
+                // 已经使用的index数量+1，用于判断indexfile是否被写满
                 this.indexHeader.incIndexCount();
+                // 更新indexheader的结束物理位置为最新的消息的物理位置，每次刷新一条索引，都会更新
                 this.indexHeader.setEndPhyOffset(phyOffset);
+                // 更新indexheader的结束时间戳为最新的消息的存储时间戳，每次刷新一条索引，都会更新
                 this.indexHeader.setEndTimestamp(storeTimestamp);
 
                 return true;

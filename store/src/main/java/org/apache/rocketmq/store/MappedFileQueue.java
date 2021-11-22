@@ -29,23 +29,35 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+/**
+ * RocketMQ跟存储交互的底层封装对象是mappedFile。
+ * 而跟CommitLog，ConsumeQueue进行交互的并不是mappedFile，
+ * 而是对其进一步封装的MappedFileQueue类。
+ */
 public class MappedFileQueue {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static final InternalLogger LOG_ERROR = InternalLoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
     private static final int DELETE_FILES_BATCH_MAX = 10;
-
+    // 文件的存储路径
+    // 对commitlog来说是${rocketmq-store}/commitlog
+    // 对consumequeue来说是${rocketmq-store}/consumequeue
     private final String storePath;
-
+    // 单个MappedFile文件对应的磁盘文件的size，对commitlog来说是1G
+    // 对consumequeue来说是30w（条目）*20（字节）即600w，约5.72M
     private final int mappedFileSize;
-
+    // 并发线程安全队列存储映射文件
     private final CopyOnWriteArrayList<MappedFile> mappedFiles = new CopyOnWriteArrayList<MappedFile>();
-
+    // 这个对象的作用是根据情况来决定是否需要提前创建好MappedFile对象供后续的直接使用。
+    // 而这个参数是在构造MappedFileQueue
+    // 对象的时候的一个参数。只有在CommitLog中构造时才会传入AllocateMappedFileService，
+    // 在ConsumeQueue并没有传入。
     private final AllocateMappedFileService allocateMappedFileService;
-
+    // 刷新完的位置
     private long flushedWhere = 0;
+    // 提交完成的位置
     private long committedWhere = 0;
-
+    // 存储时间
     private volatile long storeTimestamp = 0;
 
     public MappedFileQueue(final String storePath, int mappedFileSize,
@@ -151,7 +163,8 @@ public class MappedFileQueue {
             // ascending order
             Arrays.sort(files);
             for (File file : files) {
-
+                // 队列映射文件的大小不等于设置的文件类型的大小，
+                // 说明加载到了最后的一个文件。比如 如果是commitLog那么对于的大小应该为1G
                 if (file.length() != this.mappedFileSize) {
                     log.warn(file + "\t" + file.length()
                         + " length not matched message store config value, please check it manually");
@@ -159,8 +172,10 @@ public class MappedFileQueue {
                 }
 
                 try {
+                    // 创建文件映射
                     MappedFile mappedFile = new MappedFile(file.getPath(), mappedFileSize);
-
+                    // 新建的MappedFile对象wrotePosition committedPosition flushedPosition
+                    // 属性都设置为文件名（起始位置）
                     mappedFile.setWrotePosition(this.mappedFileSize);
                     mappedFile.setFlushedPosition(this.mappedFileSize);
                     mappedFile.setCommittedPosition(this.mappedFileSize);
@@ -196,19 +211,22 @@ public class MappedFileQueue {
         MappedFile mappedFileLast = getLastMappedFile();
 
         if (mappedFileLast == null) {
+            // 计算其实偏移量
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
-
+        // 文件已满
         if (mappedFileLast != null && mappedFileLast.isFull()) {
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
 
         if (createOffset != -1 && needCreate) {
+            // 以起始偏移量为文件名
             String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
             String nextNextFilePath = this.storePath + File.separator
                 + UtilAll.offset2FileName(createOffset + this.mappedFileSize);
             MappedFile mappedFile = null;
 
+            // allocateMappedFileService是专门用来实例化文件的
             if (this.allocateMappedFileService != null) {
                 mappedFile = this.allocateMappedFileService.putRequestAndReturnMappedFile(nextFilePath,
                     nextNextFilePath, this.mappedFileSize);

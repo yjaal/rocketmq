@@ -84,10 +84,16 @@ public class ConsumeQueue {
         return result;
     }
 
+    /**
+     * 这里其实就是从倒数第三个文件开始处理，每个文件处理的时候循环读取每个条目，如果条目中的commitlogOffset>=0
+     * 同时msgLen>0，则继续往后面读。这样最终会找到一个有效的物理偏移，这里假设叫validOffset，后面消息写入就从
+     * 这个偏移处开始写。同时validOffset后面还有其他consumequeue文件，则属于脏文件，清理掉
+     */
     public void recover() {
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
-
+            // 从倒数第三个文件开始恢复，这样可以对虚拟内存做一个预热
+            // 只有最后一个文件需要做恢复，另两个文件只是进行一个预热
             int index = mappedFiles.size() - 3;
             if (index < 0)
                 index = 0;
@@ -99,13 +105,21 @@ public class ConsumeQueue {
             long mappedFileOffset = 0;
             long maxExtAddr = 1;
             while (true) {
+                // 消费队列存储单元是一个20字节定长数据，commitlog offset(8)+size(4)+message tag hashcode(8),
+                // commitlog offset是指这条消息在commitlog文件实际偏移量，size指消息大小，
+                // 消息tag的哈希值，用于校验，每次增加20字节
                 for (int i = 0; i < mappedFileSizeLogics; i += CQ_STORE_UNIT_SIZE) {
-                    long offset = byteBuffer.getLong();
-                    int size = byteBuffer.getInt();
-                    long tagsCode = byteBuffer.getLong();
+                    long offset = byteBuffer.getLong();// 8 字节
+                    int size = byteBuffer.getInt();// 4 字节
+                    long tagsCode = byteBuffer.getLong();// 8 字节
 
+                    // 满足条件的表明数据有效，不满足的后面进行清理，注意，consumequeue也是顺序写入的
                     if (offset >= 0 && size > 0) {
+                        // consumequeue上当前消息末尾位置，该值为20*N，其中N是表示当前消息在consumequeue上是第几个消息
                         mappedFileOffset = i + CQ_STORE_UNIT_SIZE;
+                        // 队列内消息在commitlog中的偏移量,this.maxPhysicOffset最终为该队列下的consumequeue
+                        // 文件内的消息在commitlog的最大物理偏移量，即在commitlog的位置，该值也就是commitlog转
+                        // 储到consumequeue的位置，该位置后的消息就需要转储到consumequeue
                         this.maxPhysicOffset = offset + size;
                         if (isExtAddr(tagsCode)) {
                             maxExtAddr = tagsCode;
@@ -116,17 +130,20 @@ public class ConsumeQueue {
                         break;
                     }
                 }
-
+                // 达到consumequeue文件末尾
                 if (mappedFileOffset == mappedFileSizeLogics) {
                     index++;
+                    //遍历到该队列下是最后一个consumequeue文件则退出循环
                     if (index >= mappedFiles.size()) {
 
                         log.info("recover last consume queue file over, last mapped file "
                             + mappedFile.getFileName());
                         break;
                     } else {
+                        //获取下一个mappedFile对象
                         mappedFile = mappedFiles.get(index);
                         byteBuffer = mappedFile.sliceByteBuffer();
+                        //重置processOffset为mappedFile文件名
                         processOffset = mappedFile.getFileFromOffset();
                         mappedFileOffset = 0;
                         log.info("recover next consume queue file, " + mappedFile.getFileName());
@@ -141,6 +158,7 @@ public class ConsumeQueue {
             processOffset += mappedFileOffset;
             this.mappedFileQueue.setFlushedWhere(processOffset);
             this.mappedFileQueue.setCommittedWhere(processOffset);
+            //清理大于指定offset的脏文件
             this.mappedFileQueue.truncateDirtyFiles(processOffset);
 
             if (isExtReadEnable()) {
@@ -227,6 +245,7 @@ public class ConsumeQueue {
         this.maxPhysicOffset = phyOffet;
         long maxExtAddr = 1;
         while (true) {
+            // 获取consumequeue的最后一个MappedFile,即文件名最大的那个MappedFile
             MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
             if (mappedFile != null) {
                 ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
@@ -394,13 +413,17 @@ public class ConsumeQueue {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
+            // 转储
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             if (result) {
+                // 消息offset转储到consumequeue成功，把消息时间戳保存到存盘检测点
+                // logicsMsgTimestamp，供broker异常关闭启动时候恢复
                 this.defaultMessageStore.getStoreCheckpoint().setLogicsMsgTimestamp(request.getStoreTimestamp());
                 return;
             } else {
                 // XXX: warn and notify me
+                // 转储失败，等待1s继续转储
                 log.warn("[BUG]put commit log position info to " + topic + ":" + queueId + " " + request.getCommitLogOffset()
                     + " failed, retry " + i + " times");
 

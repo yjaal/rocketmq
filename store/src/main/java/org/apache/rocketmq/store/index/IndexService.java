@@ -60,14 +60,24 @@ public class IndexService {
         if (files != null) {
             // ascending order
             Arrays.sort(files);
+            // 遍历${rocketmq_home}\store\index目录下的indexfile文件
             for (File file : files) {
                 try {
                     IndexFile f = new IndexFile(file.getPath(), this.hashSlotNum, this.indexNum, 0, 0);
+                    // 加载indexfile文件，即把前40字节保存到IndexHeader
                     f.load();
-
+                    // broker上次是异常关闭
                     if (!lastExitOK) {
+                        // 如果indexfile的结束时间戳(保存到indexfile的最后一条消息的时间戳)
+                        // 大于StoreCheckpoint索引刷盘时间戳，则销毁该indexfile对象，
+                        // 即释放对应的MappedFile对象（该对象包装了堆外内存，释放堆外内存）。
+                        // 为什么要销毁呢？因为StoreCheckpoint是刷盘保存点，用于保存
+                        // commitlog consumequeue indexfile刷盘的位置，
+                        // 便于异常关闭恢复。如果indexfile的结束时间戳大于StoreCheckpoint索引刷盘时间戳，
+                        // 则说明该IndexFile是由于broker异常关闭并没有被刷盘
                         if (f.getEndTimestamp() > this.defaultMessageStore.getStoreCheckpoint()
                             .getIndexMsgTimestamp()) {
+                            // 异常关闭，同时还未刷盘，那么indexfile也没有用了，直接销毁
                             f.destroy(0);
                             continue;
                         }
@@ -204,6 +214,7 @@ public class IndexService {
             long endPhyOffset = indexFile.getEndPhyOffset();
             DispatchRequest msg = req;
             String topic = msg.getTopic();
+            // 就是commitlog中的属性
             String keys = msg.getKeys();
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
@@ -231,6 +242,7 @@ public class IndexService {
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
                 for (int i = 0; i < keyset.length; i++) {
                     String key = keyset[i];
+                    // 对于每个属性都会存一个index
                     if (key.length() > 0) {
                         indexFile = putKey(indexFile, msg, buildKey(topic, key));
                         if (indexFile == null) {
@@ -246,9 +258,10 @@ public class IndexService {
     }
 
     private IndexFile putKey(IndexFile indexFile, DispatchRequest msg, String idxKey) {
+        // 如果转储失败则进入循环之中
         for (boolean ok = indexFile.putKey(idxKey, msg.getCommitLogOffset(), msg.getStoreTimestamp()); !ok; ) {
             log.warn("Index file [" + indexFile.getFileName() + "] is full, trying to create another one");
-
+            // 如果满量，则需要再次创建一个indexFile文件
             indexFile = retryGetAndCreateIndexFile();
             if (null == indexFile) {
                 return null;

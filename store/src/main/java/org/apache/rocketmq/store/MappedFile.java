@@ -197,20 +197,30 @@ public class MappedFile extends ReferenceResource {
     public AppendMessageResult appendMessages(final MessageExtBatch messageExtBatch, final AppendMessageCallback cb) {
         return appendMessagesInner(messageExtBatch, cb);
     }
-
+    // 写消息到commitlog目录下的文件（追加方式写入）
     public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb) {
         assert messageExt != null;
         assert cb != null;
 
+        // 获取当前可写的位置，如果currentPos大于等于文件大小，表明文件写满
+        // MappedFile指针
         int currentPos = this.wrotePosition.get();
 
         if (currentPos < this.fileSize) {
+            // 通过slice方法创建一个与MappedFile共享的内存区（NIO中的零拷贝），并设置当前指针
+            // CommitLog启动的时候初始化一块内存池(通过ByteBuffer申请的堆外内存)
+            // 消息数据首先写入内存池中，然后后台有个线程定时将内存池中的数据commit到FileChannel中
+            // 如果是writeBuffer，属于异步。如果是mappedByteBuffer，属于同步
+            // 在写入文件时，从FileChannel获取直接内存映射，收到消息后，将数据写入到这块内存中，内存和物理文件的数据交互由操作系统负责
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
+            // 表示从currentPos开始写入
             byteBuffer.position(currentPos);
             AppendMessageResult result = null;
             if (messageExt instanceof MessageExtBrokerInner) {
+                // 单条写入
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBrokerInner) messageExt);
             } else if (messageExt instanceof MessageExtBatch) {
+                // 批量写入
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBatch) messageExt);
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);

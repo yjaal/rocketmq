@@ -42,12 +42,17 @@ public class IndexHeader {
     }
 
     public void load() {
+        //获取indexfile的前8字节，即起始时间戳
         this.beginTimestamp.set(byteBuffer.getLong(beginTimestampIndex));
+        // 结束时间戳 8字节
         this.endTimestamp.set(byteBuffer.getLong(endTimestampIndex));
+        //在commitlog的起始offset 8字节
         this.beginPhyOffset.set(byteBuffer.getLong(beginPhyoffsetIndex));
+        //在commitlog的结束offset 8字节
         this.endPhyOffset.set(byteBuffer.getLong(endPhyoffsetIndex));
-
+        //已占用的slot数量 4字节
         this.hashSlotCount.set(byteBuffer.getInt(hashSlotcountIndex));
+        //已经使用的index数量 4字节
         this.indexCount.set(byteBuffer.getInt(indexCountIndex));
 
         if (this.indexCount.get() <= 0) {

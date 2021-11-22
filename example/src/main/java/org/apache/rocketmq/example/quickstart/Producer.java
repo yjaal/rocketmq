@@ -68,6 +68,8 @@ public class Producer {
                  * Call send message to deliver message to one of brokers.
                  */
                 SendResult sendResult = producer.send(msg);
+                // 批量发送
+//                SendResult sendResult1 = producer.send(Arrays.asList(msg));
 
                 System.out.printf("%s%n", sendResult);
             } catch (Exception e) {

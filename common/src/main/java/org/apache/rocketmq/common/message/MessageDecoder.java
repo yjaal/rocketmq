@@ -59,11 +59,14 @@ public class MessageDecoder {
 
     public static String createMessageId(final ByteBuffer input, final ByteBuffer addr, final long offset) {
         input.flip();
+        // 消息总长度
         input.limit(MessageDecoder.MSG_ID_LENGTH);
-
+        // 消息的ip+port
         input.put(addr);
+        // 偏移
         input.putLong(offset);
 
+        // 转换成字符串
         return UtilAll.bytes2string(input.array());
     }
 
