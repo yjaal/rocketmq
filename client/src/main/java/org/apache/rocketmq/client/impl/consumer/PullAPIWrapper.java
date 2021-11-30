@@ -73,6 +73,7 @@ public class PullAPIWrapper {
 
         this.updatePullFromWhichNode(mq, pullResultExt.getSuggestWhichBrokerId());
         if (PullStatus.FOUND == pullResult.getPullStatus()) {
+            // 拿到读取到到消息
             ByteBuffer byteBuffer = ByteBuffer.wrap(pullResultExt.getMessageBinary());
             List<MessageExt> msgList = MessageDecoder.decodes(byteBuffer);
 
@@ -153,6 +154,7 @@ public class PullAPIWrapper {
         final CommunicationMode communicationMode,
         final PullCallback pullCallback
     ) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+        // 确认broker地址、是否是从节点、版本
         FindBrokerResult findBrokerResult =
             this.mQClientFactory.findBrokerAddressInSubscribe(mq.getBrokerName(),
                 this.recalculatePullFromWhichNode(mq), false);
@@ -192,6 +194,8 @@ public class PullAPIWrapper {
             requestHeader.setExpressionType(expressionType);
 
             String brokerAddr = findBrokerResult.getBrokerAddr();
+            // 类过滤模式，此时则需要根据topic、broker地址找到注册在broker上的FilterServer
+            // 地址，从FilterServer上拉取消息，否则从broker上拉取消息
             if (PullSysFlag.hasClassFilterFlag(sysFlagInner)) {
                 brokerAddr = computPullFromWhichFilterServer(mq.getTopic(), brokerAddr);
             }

@@ -96,6 +96,9 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             this.brokerController.getMessageStore().isTransientStorePoolDeficient();
     }
 
+    /**
+     * 客户端消费失败的消费返回处理
+     */
     private RemotingCommand consumerSendMsgBack(final ChannelHandlerContext ctx, final RemotingCommand request)
         throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
@@ -115,7 +118,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
             this.executeConsumeMessageHookAfter(context);
         }
-
+        // 获取消费组的订阅配置信息
         SubscriptionGroupConfig subscriptionGroupConfig =
             this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getGroup());
         if (null == subscriptionGroupConfig) {
@@ -130,13 +133,13 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             response.setRemark("the broker[" + this.brokerController.getBrokerConfig().getBrokerIP1() + "] sending message is forbidden");
             return response;
         }
-
+        // 如果重试队列数量小于0，直接返回成功
         if (subscriptionGroupConfig.getRetryQueueNums() <= 0) {
             response.setCode(ResponseCode.SUCCESS);
             response.setRemark(null);
             return response;
         }
-
+        // 创建重试主题，%RETRY%+消费组名称，并从重试队列中随机选择一个队列
         String newTopic = MixAll.getRetryTopic(requestHeader.getGroup());
         int queueIdInt = Math.abs(this.random.nextInt() % 99999999) % subscriptionGroupConfig.getRetryQueueNums();
 
@@ -144,7 +147,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         if (requestHeader.isUnitMode()) {
             topicSysFlag = TopicSysFlag.buildSysFlag(false, true);
         }
-
+        // 构建主题配置信息
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(
             newTopic,
             subscriptionGroupConfig.getRetryQueueNums(),
@@ -160,7 +163,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             response.setRemark(String.format("the topic[%s] sending message is forbidden", newTopic));
             return response;
         }
-
+        // 根据消息物理偏从commitlog文件中获取信息，同时将消息的主题存入属性中
         MessageExt msgExt = this.brokerController.getMessageStore().lookMessageByOffset(requestHeader.getOffset());
         if (null == msgExt) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
@@ -170,6 +173,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         final String retryTopic = msgExt.getProperty(MessageConst.PROPERTY_RETRY_TOPIC);
         if (null == retryTopic) {
+            // msgExt.putProperty(PROPERTY_RETRY_TOPIC, msgExt.getTopic());
             MessageAccessor.putProperty(msgExt, MessageConst.PROPERTY_RETRY_TOPIC, msgExt.getTopic());
         }
         msgExt.setWaitStoreMsgOK(false);
@@ -180,9 +184,12 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         if (request.getVersion() >= MQVersion.Version.V3_4_9.ordinal()) {
             maxReconsumeTimes = requestHeader.getMaxReconsumeTimes();
         }
-
+        // 重试次数达到最大
         if (msgExt.getReconsumeTimes() >= maxReconsumeTimes
             || delayLevel < 0) {
+            // 再次改变消息主题为%DLQ%+消费者组
+            // 该主题的权限为只写，消息一旦进入到DLQ队列，rocketMQ将不再负责调度消费
+            // 需要人工干预
             newTopic = MixAll.getDLQTopic(requestHeader.getGroup());
             queueIdInt = Math.abs(this.random.nextInt() % 99999999) % DLQ_NUMS_PER_GROUP;
 
@@ -220,7 +227,9 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         String originMsgId = MessageAccessor.getOriginMessageId(msgExt);
         MessageAccessor.setOriginMessageId(msgInner, UtilAll.isBlank(originMsgId) ? msgExt.getMsgId() : originMsgId);
-
+        // 根据原先到消息创建一个新的消息对象，重试消息会拥有自己唯一的消息id，并存入到
+        // commitlog文件中，并不会去更新原先到消息，而是将原先到主题、消息id存入消息的
+        // 属性中，主题名称为重试主题，其他属性与原先消息保持一致
         PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
         if (putMessageResult != null) {
             switch (putMessageResult.getPutMessageStatus()) {

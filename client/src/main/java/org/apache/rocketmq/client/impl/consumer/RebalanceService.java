@@ -37,7 +37,11 @@ public class RebalanceService extends ServiceThread {
         log.info(this.getServiceName() + " service started");
 
         while (!this.isStopped()) {
+            // 可配置rocketmq.client.rebalance.waitInterval 延时时间
+            // 默认20s
+            // 还可以使用-Drocketmq.client.rebalance.waitlnterval=xx设置
             this.waitForRunning(waitInterval);
+            // 再平衡
             this.mqClientFactory.doRebalance();
         }
 

@@ -43,9 +43,13 @@ public class ProcessQueue {
     public final static long REBALANCE_LOCK_INTERVAL = Long.parseLong(System.getProperty("rocketmq.client.rebalance.lockInterval", "20000"));
     private final static long PULL_MAX_IDLE_TIME = Long.parseLong(System.getProperty("rocketmq.client.pull.pullMaxIdleTime", "120000"));
     private final InternalLogger log = ClientLogger.getLog();
+    // 读写锁
     private final ReadWriteLock lockTreeMap = new ReentrantReadWriteLock();
+    // 消息存储容器，key为消息在ConsumeQueue中的偏移量，value为消息实体
     private final TreeMap<Long, MessageExt> msgTreeMap = new TreeMap<Long, MessageExt>();
+    // ProcessQueue中总消息数
     private final AtomicLong msgCount = new AtomicLong();
+    // 整个ProcessQueue处理单元的总消息长度
     private final AtomicLong msgSize = new AtomicLong();
     private final Lock lockConsume = new ReentrantLock();
     /**
@@ -53,13 +57,19 @@ public class ProcessQueue {
      */
     private final TreeMap<Long, MessageExt> consumingMsgOrderlyTreeMap = new TreeMap<Long, MessageExt>();
     private final AtomicLong tryUnlockTimes = new AtomicLong(0);
+    // 整个ProcessQueue处理单元的offset最大边界
     private volatile long queueOffsetMax = 0L;
+    // 当前processQueue是否被丢弃
     private volatile boolean dropped = false;
+    // 上一次开始消息拉取时间戳
     private volatile long lastPullTimestamp = System.currentTimeMillis();
+    // 上一次消息消费时间戳
     private volatile long lastConsumeTimestamp = System.currentTimeMillis();
     private volatile boolean locked = false;
     private volatile long lastLockTimestamp = System.currentTimeMillis();
+    // 是否正在被消费
     private volatile boolean consuming = false;
+    // broker端还有多少条消息没被处理（拉取消息的那一刻）
     private volatile long msgAccCnt = 0;
 
     public boolean isLockExpired() {
@@ -256,6 +266,9 @@ public class ProcessQueue {
         }
     }
 
+    /**
+     * 提交，将该批消息从ProcessQueue中移除，维护msgCount
+     */
     public long commit() {
         try {
             this.lockTreeMap.writeLock().lockInterruptibly();

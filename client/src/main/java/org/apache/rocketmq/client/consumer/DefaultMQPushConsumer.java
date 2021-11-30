@@ -691,6 +691,8 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     public void start() throws MQClientException {
         setConsumerGroup(NamespaceUtil.wrapNamespace(this.getNamespace(), this.consumerGroup));
         this.defaultMQPushConsumerImpl.start();
+        // 开启消息轨迹跟踪，例如
+        // DefaultMQProducer producer = new DefaultMQProducer("ConsumerGroupName",true);
         if (null != traceDispatcher) {
             try {
                 traceDispatcher.start(this.getNamesrvAddr(), this.getAccessChannel());

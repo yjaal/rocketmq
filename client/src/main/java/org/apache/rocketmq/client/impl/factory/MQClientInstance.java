@@ -984,6 +984,8 @@ public class MQClientInstance {
     }
 
     public void doRebalance() {
+        // 遍历已注册的消费者，每一个DefaultMQPushConsumerImpl都持有一个单独RebalanceImpl
+        // 对象，该方法主要是遍历订阅信息对每个主题对队列进行重新负载
         for (Map.Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
             MQConsumerInner impl = entry.getValue();
             if (impl != null) {
@@ -1084,6 +1086,7 @@ public class MQClientInstance {
     }
 
     public List<String> findConsumerIdList(final String topic, final String group) {
+        // 从所有broker中随机选择一个
         String brokerAddr = this.findBrokerAddrByTopic(topic);
         if (null == brokerAddr) {
             this.updateTopicRouteInfoFromNameServer(topic);

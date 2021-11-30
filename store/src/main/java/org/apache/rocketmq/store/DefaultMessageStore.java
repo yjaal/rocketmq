@@ -226,7 +226,7 @@ public class DefaultMessageStore implements MessageStore {
         lockFile.getChannel().write(ByteBuffer.wrap("lock".getBytes()));
         lockFile.getChannel().force(true);
         {
-            /**
+            /*
              * 1. Make sure the fast-forward messages to be truncated during the recovering according to the max physical offset of the commitlog;
              * 2. DLedger committedPos may be missing, so the maxPhysicalPosInLogicQueue maybe bigger that maxOffset returned by DLedgerCommitLog, just let it go;
              * 3. Calculate the reput offset according to the consume queue;
@@ -577,7 +577,7 @@ public class DefaultMessageStore implements MessageStore {
                                     isTagsCodeLegal = false;
                                 }
                             }
-
+                            // 通过consumequeue条目匹配
                             if (messageFilter != null
                                 && !messageFilter.isMatchedByConsumeQueue(isTagsCodeLegal ? tagsCode : null, extRet ? cqExtUnit : null)) {
                                 if (getResult.getBufferTotalSize() == 0) {
@@ -596,7 +596,7 @@ public class DefaultMessageStore implements MessageStore {
                                 nextPhyFileStartOffset = this.commitLog.rollNextFile(offsetPy);
                                 continue;
                             }
-
+                            // 通过commitlog消息匹配
                             if (messageFilter != null
                                 && !messageFilter.isMatchedByCommitLog(selectResult.getByteBuffer().slice(), null)) {
                                 if (getResult.getBufferTotalSize() == 0) {
@@ -1829,14 +1829,19 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         private void doReput() {
+            // 当系统重启的时候，会根据duplicationEnable来决定是否从头开始处理消息还是只处理新来的消息。
+            // 在duplicationEnable是true 的情况下，还需要设置CommitLog
+            // .confirmOffset才能从头开始处理消息，因为默认情况下系统启动以后CommitLog.confirmOffset
+            // 和ReputMessageService.reputFromOffset是相等的
             // 检测偏移量
             if (this.reputFromOffset < DefaultMessageStore.this.commitLog.getMinOffset()) {
                 log.warn("The reputFromOffset={} is smaller than minPyOffset={}, this usually indicate that the dispatch behind too much and the commitlog has expired.",
                     this.reputFromOffset, DefaultMessageStore.this.commitLog.getMinOffset());
+                // 取最小的commitlog偏移量
                 this.reputFromOffset = DefaultMessageStore.this.commitLog.getMinOffset();
             }
             for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
-
+                // 允许消息重复，这里的confirmOffset没明白是啥意思？todo
                 if (DefaultMessageStore.this.getMessageStoreConfig().isDuplicationEnable()
                     && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
                     break;
@@ -1858,7 +1863,7 @@ public class DefaultMessageStore implements MessageStore {
                                 if (size > 0) {
                                     // 更新consumequeue里的位置信息，更新indexFile
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
-
+                                    // 非从broker，同时支持长轮询
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
                                         && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()) {
                                         DefaultMessageStore.this.messageArrivingListener.arriving(dispatchRequest.getTopic(),

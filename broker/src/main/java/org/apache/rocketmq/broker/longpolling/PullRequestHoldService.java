@@ -46,6 +46,7 @@ public class PullRequestHoldService extends ServiceThread {
         ManyPullRequest mpr = this.pullRequestTable.get(key);
         if (null == mpr) {
             mpr = new ManyPullRequest();
+            // 将挂起请求存入到ManyPullRequest
             ManyPullRequest prev = this.pullRequestTable.putIfAbsent(key, mpr);
             if (prev != null) {
                 mpr = prev;
@@ -69,12 +70,15 @@ public class PullRequestHoldService extends ServiceThread {
         while (!this.isStopped()) {
             try {
                 if (this.brokerController.getBrokerConfig().isLongPollingEnable()) {
+                    // broker支持长轮训，5s一次判断消息是否到达
                     this.waitForRunning(5 * 1000);
                 } else {
+                    // 否则默认1s检查一次
                     this.waitForRunning(this.brokerController.getBrokerConfig().getShortPollingTimeMills());
                 }
 
                 long beginLockTimestamp = this.systemClock.now();
+                // 检查消息是否到达
                 this.checkHoldRequest();
                 long costTime = this.systemClock.now() - beginLockTimestamp;
                 if (costTime > 5 * 1000) {
@@ -94,6 +98,8 @@ public class PullRequestHoldService extends ServiceThread {
     }
 
     private void checkHoldRequest() {
+        // 循环遍历，通过topic和queueId获取消费队列最大到偏移量，如果大于待拉取偏移量
+        // 则表明有新消息到达
         for (String key : this.pullRequestTable.keySet()) {
             String[] kArray = key.split(TOPIC_QUEUEID_SEPARATOR);
             if (2 == kArray.length) {
@@ -101,6 +107,7 @@ public class PullRequestHoldService extends ServiceThread {
                 int queueId = Integer.parseInt(kArray[1]);
                 final long offset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                 try {
+                    // 触发消息拉取
                     this.notifyMessageArriving(topic, queueId, offset);
                 } catch (Throwable e) {
                     log.error("check hold request failed. topic={}, queueId={}", topic, queueId, e);
@@ -118,6 +125,7 @@ public class PullRequestHoldService extends ServiceThread {
         String key = this.buildKey(topic, queueId);
         ManyPullRequest mpr = this.pullRequestTable.get(key);
         if (mpr != null) {
+            // 同步获取所有挂起到拉取请求
             List<PullRequest> requestList = mpr.cloneListAndClear();
             if (requestList != null) {
                 List<PullRequest> replayList = new ArrayList<PullRequest>();
@@ -138,6 +146,7 @@ public class PullRequestHoldService extends ServiceThread {
 
                         if (match) {
                             try {
+                                // 唤醒挂起线程，将消息返回给消息拉取客户端
                                 this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),
                                     request.getRequestCommand());
                             } catch (Throwable e) {
@@ -146,7 +155,7 @@ public class PullRequestHoldService extends ServiceThread {
                             continue;
                         }
                     }
-
+                    // 如果超时了，则不继续等待，直接返回客户端消息未找到
                     if (System.currentTimeMillis() >= (request.getSuspendTimestamp() + request.getTimeoutMillis())) {
                         try {
                             this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),

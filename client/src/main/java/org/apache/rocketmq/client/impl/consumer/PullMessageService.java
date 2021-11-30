@@ -43,6 +43,9 @@ public class PullMessageService extends ServiceThread {
         this.mQClientFactory = mQClientFactory;
     }
 
+    /**
+     * 向pullRequestQueue存入pullRequest
+     */
     public void executePullRequestLater(final PullRequest pullRequest, final long timeDelay) {
         if (!isStopped()) {
             this.scheduledExecutorService.schedule(new Runnable() {
@@ -56,6 +59,9 @@ public class PullMessageService extends ServiceThread {
         }
     }
 
+    /**
+     * 向pullRequestQueue存入pullRequest
+     */
     public void executePullRequestImmediately(final PullRequest pullRequest) {
         try {
             this.pullRequestQueue.put(pullRequest);
@@ -77,8 +83,11 @@ public class PullMessageService extends ServiceThread {
     }
 
     private void pullMessage(final PullRequest pullRequest) {
+        // 获取消费者内部实现类MQConsumerInner
         final MQConsumerInner consumer = this.mQClientFactory.selectConsumer(pullRequest.getConsumerGroup());
         if (consumer != null) {
+            // 强制转换成了DefaultMQPushConsumerImpl，这个只为push模式服务
+            // 也就是说pull模式，rocketMQ只提供拉取消息到API，具体由应用程序调用
             DefaultMQPushConsumerImpl impl = (DefaultMQPushConsumerImpl) consumer;
             impl.pullMessage(pullRequest);
         } else {
