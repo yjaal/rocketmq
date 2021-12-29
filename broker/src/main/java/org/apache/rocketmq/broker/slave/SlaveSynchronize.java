@@ -46,9 +46,13 @@ public class SlaveSynchronize {
     }
 
     public void syncAll() {
+        // 同步topic配置信息
         this.syncTopicConfig();
+        // 同步消费偏移量信息
         this.syncConsumerOffset();
+        // 同步延迟信息
         this.syncDelayOffset();
+        // 同步消费组信息，所以主从同步的核心，是基于消息的订阅来实现的
         this.syncSubscriptionGroupConfig();
     }
 

@@ -870,8 +870,9 @@ public class BrokerController {
         if (this.filterServerManager != null) {
             this.filterServerManager.start();
         }
-
+        // 不支持broker主从切换
         if (!messageStoreConfig.isEnableDLegerCommitLog()) {
+            // 主节点需要查看事务检查机制是否有打开
             startProcessorByHa(messageStoreConfig.getBrokerRole());
             handleSlaveSynchronize(messageStoreConfig.getBrokerRole());
         }
@@ -899,8 +900,6 @@ public class BrokerController {
         if (this.brokerFastFailure != null) {
             this.brokerFastFailure.start();
         }
-
-
     }
 
     public synchronized void registerIncrementBrokerData(TopicConfig topicConfig, DataVersion dataVersion) {
@@ -1131,6 +1130,7 @@ public class BrokerController {
                 slaveSyncFuture.cancel(false);
             }
             this.slaveSynchronize.setMasterAddr(null);
+            // 从节点开启了一个同步定时任务，每隔10s向主节点发起一次同步请求
             slaveSyncFuture = this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {

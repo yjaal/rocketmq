@@ -35,8 +35,9 @@ public class HAConnection {
     private final String clientAddr;
     private WriteSocketService writeSocketService;
     private ReadSocketService readSocketService;
-
+    // 从master请求拉取数据的偏移
     private volatile long slaveRequestOffset = -1;
+    // 从master反馈已拉取完成的数据偏移
     private volatile long slaveAckOffset = -1;
 
     public HAConnection(final HAService haService, final SocketChannel socketChannel) throws IOException {
@@ -79,11 +80,14 @@ public class HAConnection {
     }
 
     class ReadSocketService extends ServiceThread {
+        // 读缓存大小，默认为1M
         private static final int READ_MAX_BUFFER_SIZE = 1024 * 1024;
         private final Selector selector;
         private final SocketChannel socketChannel;
+        // 读写缓存区，默认为1M
         private final ByteBuffer byteBufferRead = ByteBuffer.allocate(READ_MAX_BUFFER_SIZE);
         private int processPostion = 0;
+        // 上次读取数据的时间戳
         private volatile long lastReadTimestamp = System.currentTimeMillis();
 
         public ReadSocketService(final SocketChannel socketChannel) throws IOException {

@@ -54,36 +54,51 @@ import org.apache.rocketmq.store.schedule.ScheduleMessageService;
  * Store all metadata downtime for recovery, data protection reliability
  */
 public class DLedgerCommitLog extends CommitLog {
+    // 基于raft协议实现的集群内的一个节点
     private final DLedgerServer dLedgerServer;
+    // DLeger配置信息
     private final DLedgerConfig dLedgerConfig;
+    // DLeger基于文件映射的存储实现
     private final DLedgerMmapFileStore dLedgerFileStore;
+    // DLeger所管理的存储文件集合，类似于MappedFileQueue
     private final MmapFileList dLedgerFileList;
-
     //The id identifies the broker role, 0 means master, others means slave
+    // 节点id，0：主节点，非0：从节点
     private final int id;
-
     private final MessageSerializer messageSerializer;
+    // 用于记录消息追加的耗时（日志追加所持有锁时间）
     private volatile long beginTimeInDledgerLock = 0;
-
     //This offset separate the old commitlog from dledger commitlog
+    // 记录的旧commitlog文件中的最大偏移量，如果访问的偏移量大于它，则访问DLeger管理的文件
     private long dividedCommitlogOffset = -1;
-
-
+    // 是否正在恢复旧的commitlog文件
     private boolean isInrecoveringOldCommitlog = false;
 
     public DLedgerCommitLog(final DefaultMessageStore defaultMessageStore) {
         super(defaultMessageStore);
         dLedgerConfig =  new DLedgerConfig();
+        // 是否强制删除文件，取自broker配置文件cleanFileForciblyEnable，默认为true
         dLedgerConfig.setEnableDiskForceClean(defaultMessageStore.getMessageStoreConfig().isCleanFileForciblyEnable());
+        // 存储类型，固定为基于文件的存储模式
         dLedgerConfig.setStoreType(DLedgerConfig.FILE);
+        // leader节点的id名称，如：n0，第二个字符必须是数字
         dLedgerConfig.setSelfId(defaultMessageStore.getMessageStoreConfig().getdLegerSelfId());
+        // DLeger 组名称，建议与broker配置属性brokerName保持一致
         dLedgerConfig.setGroup(defaultMessageStore.getMessageStoreConfig().getdLegerGroup());
+        // DLeger group 中所有节点信息，如：n0-ip:port;n1-ip:port，分号分隔
         dLedgerConfig.setPeers(defaultMessageStore.getMessageStoreConfig().getdLegerPeers());
+        // 设置DLeger的日志文件的根目录，取自broker配置文件中的storePathRootDir
+        // 即rocketMQ数据存储根路径
         dLedgerConfig.setStoreBaseDir(defaultMessageStore.getMessageStoreConfig().getStorePathRootDir());
+        // 设置DLeger的单个日志文件大小，取自broker配置文件中的 mappedFileSizeCommitLog
+        // 即与commitlog文件的单个文件大小一致
         dLedgerConfig.setMappedFileSizeForEntryData(defaultMessageStore.getMessageStoreConfig().getMapedFileSizeCommitLog());
+        // DLedger 日志文件的删除时间，取自 broker 配置文件中的 deleteWhen，默认为凌晨4点
         dLedgerConfig.setDeleteWhen(defaultMessageStore.getMessageStoreConfig().getDeleteWhen());
+        // DLedger 日志文件保留时长，取自 broker 配置文件中的 fileReservedHours，默认为72h
         dLedgerConfig.setFileReservedHours(defaultMessageStore.getMessageStoreConfig().getFileReservedTime() + 1);
         id = Integer.valueOf(dLedgerConfig.getSelfId().substring(1)) + 1;
+        // 创建DLegerServer，即创建DLeger集群节点，集群内各个节点启动后，就会触发选主
         dLedgerServer = new DLedgerServer(dLedgerConfig);
         dLedgerFileStore = (DLedgerMmapFileStore) dLedgerServer.getdLedgerStore();
         DLedgerMmapFileStore.AppendHook appendHook = (entry, buffer, bodyOffset) -> {
@@ -91,6 +106,7 @@ public class DLedgerCommitLog extends CommitLog {
             buffer.position(buffer.position() + bodyOffset + MessageDecoder.PHY_POS_POSITION);
             buffer.putLong(entry.getPos() + bodyOffset);
         };
+        // 添加钩子函数
         dLedgerFileStore.addAppendHook(appendHook);
         dLedgerFileList = dLedgerFileStore.getDataFileList();
         this.messageSerializer = new MessageSerializer(defaultMessageStore.getMessageStoreConfig().getMaxMessageSize());
@@ -99,6 +115,7 @@ public class DLedgerCommitLog extends CommitLog {
 
     @Override
     public boolean load() {
+        // 这里直接使用父类的方法，兼容以前的消息
         boolean result = super.load();
         if (!result) {
             return false;
@@ -257,17 +274,36 @@ public class DLedgerCommitLog extends CommitLog {
         return null;
     }
 
+    /**
+     * 在broker启动时会加载commitlog、consumequeue等文件，需要恢复其相关数据结构
+     * 特别是写入、刷盘、提交等指针，具体调用此方法
+     */
     private void recover(long maxPhyOffsetOfConsumeQueue) {
+        // 首先加载存储文件
         dLedgerFileStore.load();
+        // 先恢复consumequeue，然后根据其最大物理偏移量进行恢复
+        // 主要是wrotePosition、flushedPosition、committedPosition 三个指针
+        // 如果本身就已经存在DLeger的数据文件，则只需要恢复DLeger相关数据文件
+        // 因为在加载时，已经将相关指针设置为最大值
         if (dLedgerFileList.getMappedFiles().size() > 0) {
+            // 恢复DLeger文件，与DefaultMessageStore的恢复类似
             dLedgerFileStore.recover();
+            // 设置 dividedCommitlogOffset 的值为 DLedger 中所有物理文件的最小偏移量。
+            // 操作消息的物理偏移量小于该值，则从 commitlog 文件中查找；物理偏移量大于等于
+            // 该值的话则从 DLedger 相关的文件中查找消息
             dividedCommitlogOffset = dLedgerFileList.getFirstMappedFile().getFileFromOffset();
             MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
+            // 如果存在旧的commitlog文件，则禁止删除DLeger文件，方法是禁止强制删除文件，并将
+            // 文件的有效存储时间设置为10年
+            // 正常情况下，commitlog文件的最大偏移和DLeger文件的最小偏移是连续的，如果将
+            // DLeger文件删除，则两个值就不连续了，会造成中间文件空洞，无法被连续访问
             if (mappedFile != null) {
                 disableDeleteDledger();
             }
             long maxPhyOffset = dLedgerFileList.getMaxWrotePosition();
             // Clear ConsumeQueue redundant data
+            // 如果consumequeue中的最大物理偏移大于DLeger的最大物理偏移，则删除多余
+            // 的consumequeue文件
             if (maxPhyOffsetOfConsumeQueue >= maxPhyOffset) {
                 log.warn("[TruncateCQ]maxPhyOffsetOfConsumeQueue({}) >= processOffset({}), truncate dirty logic files", maxPhyOffsetOfConsumeQueue, maxPhyOffset);
                 this.defaultMessageStore.truncateDirtyLogicFiles(maxPhyOffset);
@@ -277,8 +313,11 @@ public class DLedgerCommitLog extends CommitLog {
         //Indicate that, it is the first time to load mixed commitlog, need to recover the old commitlog
         isInrecoveringOldCommitlog = true;
         //No need the abnormal recover
+        // 如果还没有生成DLeger文件，则需要恢复旧的commitlog文件
         super.recoverNormally(maxPhyOffsetOfConsumeQueue);
         isInrecoveringOldCommitlog = false;
+        // 将旧的commitlog文件剩余部分全部填充，即不再接受新的数据写入，新的数据全部写入
+        // 到DLeger的数据文件中
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
         if (mappedFile == null) {
             return;
@@ -369,6 +408,11 @@ public class DLedgerCommitLog extends CommitLog {
         return beginTimeInDledgerLock;
     }
 
+    /**
+     * 这里消息在追加时，则不写入到原先到commitlog文件，而是调用DLegerServer到handleAppend
+     * 进行消息追加，该方法会有集群内到Leader节点负责消息追加以及消息复制，只有超过集群内
+     * 的半数节点成功写入消息后，才会返回成功，返回下次追加的偏移量
+     */
     @Override
     public PutMessageResult putMessage(final MessageExtBrokerInner msg) {
         // Set the storage time
@@ -424,6 +468,7 @@ public class DLedgerCommitLog extends CommitLog {
             request.setGroup(dLedgerConfig.getGroup());
             request.setRemoteId(dLedgerServer.getMemberState().getSelfId());
             request.setBody(encodeResult.data);
+            // 写入消息，超过半数节点成功后才返回成功，并获取到最大物理偏移量
             dledgerFuture = (AppendFuture<AppendEntryResponse>) dLedgerServer.handleAppend(request);
             if (dledgerFuture.getPos() == -1) {
                 return new PutMessageResult(PutMessageStatus.OS_PAGECACHE_BUSY, new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR));
