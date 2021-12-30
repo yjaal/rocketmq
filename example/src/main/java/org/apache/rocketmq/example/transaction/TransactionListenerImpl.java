@@ -52,8 +52,10 @@ public class TransactionListenerImpl implements TransactionListener {
                     // 继续重复，有限制次数，默认为15次
                     return LocalTransactionState.UNKNOW;
                 case 1:
+                    // 提交
                     return LocalTransactionState.COMMIT_MESSAGE;
                 case 2:
+                    // 回滚
                     return LocalTransactionState.ROLLBACK_MESSAGE;
                 default:
                     return LocalTransactionState.COMMIT_MESSAGE;

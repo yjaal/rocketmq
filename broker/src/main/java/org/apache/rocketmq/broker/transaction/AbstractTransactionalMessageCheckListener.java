@@ -76,6 +76,7 @@ public abstract class AbstractTransactionalMessageCheckListener {
             @Override
             public void run() {
                 try {
+                    // 这里起始就是发送 CHECK_TRANSACTION_STATE 报文给 Client
                     sendCheckMessage(msgExt);
                 } catch (Exception e) {
                     LOGGER.error("Send check message error!", e);
