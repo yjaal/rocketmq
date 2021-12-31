@@ -508,11 +508,13 @@ public class BrokerController {
     }
 
     private void initialAcl() {
+        // 关闭状态不处理
         if (!this.brokerConfig.isAclEnable()) {
             log.info("The broker dose not enable acl");
             return;
         }
-
+        // 如果用户开启了 ACL，那么会从 META-INF 路径下去加载所有实现了
+        // AccessValidator 接口的实现类
         List<AccessValidator> accessValidators = ServiceProvider.load(ServiceProvider.ACL_VALIDATOR_ID, AccessValidator.class);
         if (accessValidators == null || accessValidators.isEmpty()) {
             log.info("The broker dose not load the AccessValidator");
@@ -521,11 +523,13 @@ public class BrokerController {
 
         for (AccessValidator accessValidator: accessValidators) {
             final AccessValidator validator = accessValidator;
+            // 如果存在校验相关实现类，则会注册到服务端上面
             this.registerServerRPCHook(new RPCHook() {
 
                 @Override
                 public void doBeforeRequest(String remoteAddr, RemotingCommand request) {
                     //Do not catch the exception
+                    // 执行相关校验逻辑
                     validator.validate(validator.parse(request, remoteAddr));
                 }
 

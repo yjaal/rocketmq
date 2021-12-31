@@ -122,7 +122,7 @@ public class PlainPermissionLoader {
             // If the needCheckedPermMap is null,then return
             return;
         }
-
+        // Admin用户直接通过
         if (ownedPermMap == null && ownedAccess.isAdmin()) {
             // If the ownedPermMap is null and it is an admin user, then return
             return;
@@ -184,6 +184,7 @@ public class PlainPermissionLoader {
     public void validate(PlainAccessResource plainAccessResource) {
 
         // Check the global white remote addr
+        // 检查是否命中全局ip白名单，如果是，则认为校验通过
         for (RemoteAddressStrategy remoteAddressStrategy : globalWhiteRemoteAddressStrategy) {
             if (remoteAddressStrategy.match(plainAccessResource)) {
                 return;
@@ -199,18 +200,19 @@ public class PlainPermissionLoader {
         }
 
         // Check the white addr for accesskey
+        // 检查是否命中用户ip白名单，如果是，则认为校验通过
         PlainAccessResource ownedAccess = plainAccessResourceMap.get(plainAccessResource.getAccessKey());
         if (ownedAccess.getRemoteAddressStrategy().match(plainAccessResource)) {
             return;
         }
 
-        // Check the signature
+        // Check the signature 校验签名
         String signature = AclUtils.calSignature(plainAccessResource.getContent(), ownedAccess.getSecretKey());
         if (!signature.equals(plainAccessResource.getSignature())) {
             throw new AclException(String.format("Check signature failed for accessKey=%s", plainAccessResource.getAccessKey()));
         }
         // Check perm of each resource
-
+        // 对用户请求所需的权限和用户所拥有的权限进行校验
         checkPerm(plainAccessResource, ownedAccess);
     }
 

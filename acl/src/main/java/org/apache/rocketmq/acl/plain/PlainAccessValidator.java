@@ -16,6 +16,8 @@
  */
 package org.apache.rocketmq.acl.plain;
 
+import static org.apache.rocketmq.acl.plain.PlainAccessResource.getRetryTopic;
+
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -34,8 +36,6 @@ import org.apache.rocketmq.common.protocol.heartbeat.HeartbeatData;
 import org.apache.rocketmq.common.protocol.heartbeat.SubscriptionData;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 
-import static org.apache.rocketmq.acl.plain.PlainAccessResource.getRetryTopic;
-
 public class PlainAccessValidator implements AccessValidator {
 
     private PlainPermissionLoader aclPlugEngine;
@@ -50,6 +50,7 @@ public class PlainAccessValidator implements AccessValidator {
         if (remoteAddr != null && remoteAddr.contains(":")) {
             accessResource.setWhiteRemoteAddress(remoteAddr.split(":")[0]);
         } else {
+            // 将远程地址存放到白名单中
             accessResource.setWhiteRemoteAddress(remoteAddr);
         }
 
@@ -60,11 +61,13 @@ public class PlainAccessValidator implements AccessValidator {
             //The following logic codes depend on the request's extFields not to be null.
             return accessResource;
         }
+        // 解析出相关到参数属性
         accessResource.setAccessKey(request.getExtFields().get(SessionCredentials.ACCESS_KEY));
         accessResource.setSignature(request.getExtFields().get(SessionCredentials.SIGNATURE));
         accessResource.setSecretToken(request.getExtFields().get(SessionCredentials.SECURITY_TOKEN));
 
         try {
+            // 不同消息类型添加不同的资源访问权限
             switch (request.getCode()) {
                 case RequestCode.SEND_MESSAGE:
                     accessResource.addResourceAndPerm(request.getExtFields().get("topic"), Permission.PUB);

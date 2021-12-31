@@ -24,10 +24,13 @@ import org.apache.rocketmq.acl.plain.PlainAccessResource;
 import org.apache.rocketmq.common.protocol.RequestCode;
 
 public class Permission {
-
+    // 拒绝
     public static final byte DENY = 1;
+    // PUB 或者 SUB 权限
     public static final byte ANY = 1 << 1;
+    // 发送权限。即从Producer发送过来的命令所具有的权限
     public static final byte PUB = 1 << 2;
+    // 订阅权限，即从消费端发送过来的命令所具有的权限
     public static final byte SUB = 1 << 3;
 
     public static final Set<Integer> ADMIN_CODE = new HashSet<Integer>();

@@ -16,10 +16,13 @@
  */
 package org.apache.rocketmq.example.quickstart;
 
+import org.apache.rocketmq.acl.common.AclClientRPCHook;
+import org.apache.rocketmq.acl.common.SessionCredentials;
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
 import org.apache.rocketmq.client.producer.SendResult;
 import org.apache.rocketmq.common.message.Message;
+import org.apache.rocketmq.remoting.RPCHook;
 import org.apache.rocketmq.remoting.common.RemotingHelper;
 
 /**
@@ -27,12 +30,20 @@ import org.apache.rocketmq.remoting.common.RemotingHelper;
  * <p/> 基本的同步方式
  */
 public class Producer {
+
+    private static final String ACL_ACCESS_KEY = "custNo";
+    private static final String ACL_SECRET_KEY = "1234567";
+    // 定义一个RPCHook
+    static RPCHook getAclRPCHook() {
+        return new AclClientRPCHook(new SessionCredentials(ACL_ACCESS_KEY,ACL_SECRET_KEY));
+    }
+
     public static void main(String[] args) throws MQClientException, InterruptedException {
 
         /*
          * Instantiate with a producer group name.
          */
-        DefaultMQProducer producer = new DefaultMQProducer("ProducerGroup");
+        DefaultMQProducer producer = new DefaultMQProducer("ProducerGroup", getAclRPCHook());
 
         /*
          * Specify name server addresses.

@@ -16,6 +16,10 @@
  */
 package org.apache.rocketmq.acl.common;
 
+import static org.apache.rocketmq.acl.common.SessionCredentials.ACCESS_KEY;
+import static org.apache.rocketmq.acl.common.SessionCredentials.SECURITY_TOKEN;
+import static org.apache.rocketmq.acl.common.SessionCredentials.SIGNATURE;
+
 import java.lang.reflect.Field;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -23,10 +27,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.rocketmq.remoting.CommandCustomHeader;
 import org.apache.rocketmq.remoting.RPCHook;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
-
-import static org.apache.rocketmq.acl.common.SessionCredentials.ACCESS_KEY;
-import static org.apache.rocketmq.acl.common.SessionCredentials.SECURITY_TOKEN;
-import static org.apache.rocketmq.acl.common.SessionCredentials.SIGNATURE;
 
 public class AclClientRPCHook implements RPCHook {
     private final SessionCredentials sessionCredentials;
@@ -39,9 +39,16 @@ public class AclClientRPCHook implements RPCHook {
 
     @Override
     public void doBeforeRequest(String remoteAddr, RemotingCommand request) {
+        // 这里将request的自定义头部上面的所有字段的name和value都存入到了一个
+        // sortedMap中，同时将ACCESS_KEY 和 SECURITY_TOKEN (如果有)也放入了进去
+        // 自定义头中存放了用户存入的一些属性，将所有字段拼接为字符串，然后获取字节数组
+        // 然后和本身的body字节数组拼接在一起得到最终的byte数组
         byte[] total = AclUtils.combineRequestContent(request,
             parseRequestContent(request, sessionCredentials.getAccessKey(), sessionCredentials.getSecurityToken()));
+        // 通过上面的字节数组计算签名，默认采用SigningAlgorithm.HmacSHA1 算法获取到签
+        // 名后的 byte[] 数组，再通过 Base64.encodeBase64 将其转为字符串，返回最终的签名
         String signature = AclUtils.calSignature(total, sessionCredentials.getSecretKey());
+        // 将签名、ACCESS_KEY、SECURITY_TOKEN (如果有) 添加到请求的扩展字段中
         request.addExtField(SIGNATURE, signature);
         request.addExtField(ACCESS_KEY, sessionCredentials.getAccessKey());
         
